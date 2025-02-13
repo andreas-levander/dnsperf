@@ -38,18 +38,17 @@ def set_qps(cfg, qps, delay, runtime, max_requests):
     delay = math.ceil((burst_size / qps) * 1e9)
     cfg['burst_delay'] = str(delay)
     threads = int(cfg['threads'])
-    real_qps = calculate_qps(burst_size, delay)
-    requests = real_qps * runtime
+    real_qps = calculate_qps(burst_size, delay) * threads
+    requests = real_qps * runtime 
 
     div = burst_size * threads
-    if requests % div != 0:
-        print("Requests not divisible by burst size * threads, increasing requests")
-        while requests % div != 0:
+    while requests % div != 0:
+            #print("Requests not divisible by burst size * threads, increasing requests")
             requests += 1
     if requests > max_requests:
         raise Exception(f"Too many requests {requests:,} > MAX ALLOWED {max_requests:,}")
     cfg['requests'] = str(requests)
-    print(f"Setting QPS to {qps:,} - rQPS {real_qps:,} with burst size {burst_size:,} and burst delay {delay:,}ns with {requests:,} requests")
+    print(f"Setting QPS/t to {qps:,} - rQPS {real_qps:,} with burst size {burst_size:,} and burst delay {delay:,}ns with {requests:,} requests")
     return real_qps
 
 def run_dnsperf(cfg):
@@ -70,21 +69,24 @@ def parse_dnsperf_output(output):
             valid = int(line.split(":")[1].strip().split(" ")[0].strip())
     return queries, answers, valid
 
-def binary_searchQPS(dnsperfconfig, low, high, runtime, accuracy, max_requests, log_target):
+def binary_searchQPS(dnsperfconfig, low, high, runtime, accuracy, max_requests, log_target, delay):
     while low < high:
-        mid = low + (high - low) // 2
-        rqps = set_qps(dnsperfconfig, mid, 1000, runtime, max_requests)
+        mid = low + math.ceil((high - low) / 2)
+        print(f"Low: {low:,}, High: {high:,}, Mid: {mid:,}")
+        if high - low < accuracy:
+            break
+        rqps = set_qps(dnsperfconfig, mid, delay, runtime, max_requests)
         res = run_dnsperf(dnsperfconfig)
         q, a, v = parse_dnsperf_output(res)
         print(f"QPS: {mid:,}, rQPS:{rqps:,} Queries: {q:,}, Answers: {a:,}, Valid: {v:,}\n")
         if q != v:
-            high = mid - accuracy
+            high = mid
         else:
             # save log file
             shutil.move("dns64perf.csv", log_target)
-            low = mid + accuracy
+            low = mid
        
-    return low - accuracy
+    return low
 
 def get_args():
     parser = argparse.ArgumentParser(
@@ -116,6 +118,7 @@ def main():
     start_qps = int(config['DEFAULT']['start_qps'])
     max_qps = int(config['DEFAULT']['max_qps'])
     runs = int(config['DEFAULT']['runs'])
+    delay = int(config['dns64perfpp']['burst_delay'])
     MAX_REQUESTS = calculate_max_requests(dnsperfconfig)
 
 
@@ -124,8 +127,8 @@ def main():
         print("\n********************************")
         print(f"Starting run {run}")
         log_target = f"{path}/{targetname}_{run}.csv"
-        qps = binary_searchQPS(dnsperfconfig, start_qps, max_qps, runtime, accuracy, MAX_REQUESTS, log_target)
-        print(f"Max QPS: {qps:,} for run {run}")
+        qps = binary_searchQPS(dnsperfconfig, start_qps, max_qps, runtime, accuracy, MAX_REQUESTS, log_target, delay)
+        print(f"Max QPS: {qps * int(config['dns64perfpp']['threads']):,} for run {run}")
         
         print(f"Run {run} done in {datetime.datetime.now() - rt}")
     
