@@ -25,8 +25,6 @@ def calculate_max_requests(config):
 
 
 def calculate_qps(burst_size, burst_delay):
-    print(f"Burst size: {burst_size}, Burst delay: {burst_delay}")
-    print((burst_size / burst_delay) *1e9)
     return math.ceil((burst_size / burst_delay) * 1e9)
 
 def set_qps(cfg, qps, delay, runtime, max_requests):
@@ -72,7 +70,7 @@ def parse_dnsperf_output(output):
             valid = int(line.split(":")[1].strip().split(" ")[0].strip())
     return queries, answers, valid
 
-def binary_searchQPS(dnsperfconfig, low, high, runtime, accuracy, max_requests):
+def binary_searchQPS(dnsperfconfig, low, high, runtime, accuracy, max_requests, log_target):
     while low < high:
         mid = low + (high - low) // 2
         rqps = set_qps(dnsperfconfig, mid, 1000, runtime, max_requests)
@@ -82,9 +80,11 @@ def binary_searchQPS(dnsperfconfig, low, high, runtime, accuracy, max_requests):
         if q != v:
             high = mid - accuracy
         else:
+            # save log file
+            shutil.move("dns64perf.csv", log_target)
             low = mid + accuracy
        
-    return rqps
+    return low - accuracy
 
 def get_args():
     parser = argparse.ArgumentParser(
@@ -123,10 +123,10 @@ def main():
         rt = datetime.datetime.now()
         print("\n********************************")
         print(f"Starting run {run}")
-        qps = binary_searchQPS(dnsperfconfig, start_qps, max_qps, runtime, accuracy, MAX_REQUESTS)
+        log_target = f"{path}/{targetname}_{run}.csv"
+        qps = binary_searchQPS(dnsperfconfig, start_qps, max_qps, runtime, accuracy, MAX_REQUESTS, log_target)
         print(f"Max QPS: {qps:,} for run {run}")
-        # save log file
-        shutil.move("dns64perf.csv", f"{path}/{targetname}_{run}.csv")
+        
         print(f"Run {run} done in {datetime.datetime.now() - rt}")
     
     after = datetime.datetime.now()
