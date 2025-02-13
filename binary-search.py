@@ -4,6 +4,7 @@ import configparser
 import datetime
 import os
 import shutil
+import math
 
 """
 dnsperfconfig = {
@@ -24,25 +25,34 @@ def calculate_max_requests(config):
 
 
 def calculate_qps(burst_size, burst_delay):
-    return (burst_size / burst_delay) * 1e9
+    print(f"Burst size: {burst_size}, Burst delay: {burst_delay}")
+    print((burst_size / burst_delay) *1e9)
+    return math.ceil((burst_size / burst_delay) * 1e9)
 
 def set_qps(cfg, qps, delay, runtime, max_requests):
-    burst_size = int((qps * delay) / 1e9)
+    burst_size = (qps * delay) / 1e9
     if burst_size < 1:
         #print("Burst size too small, increasing delay by x10")
         return set_qps(cfg, qps, delay * 10, runtime, max_requests)
+    burst_size = math.ceil(burst_size)
     cfg['burst_size'] = str(burst_size)
+    # adjust delay to get qps
+    delay = math.ceil((burst_size / qps) * 1e9)
     cfg['burst_delay'] = str(delay)
     threads = int(cfg['threads'])
-    requests = int(qps * runtime)
-    if requests % (burst_size * threads) != 0:
+    real_qps = calculate_qps(burst_size, delay)
+    requests = real_qps * runtime
+
+    div = burst_size * threads
+    if requests % div != 0:
         print("Requests not divisible by burst size * threads, increasing requests")
-        while requests % (burst_size * threads) != 0:
+        while requests % div != 0:
             requests += 1
     if requests > max_requests:
         raise Exception(f"Too many requests {requests:,} > MAX ALLOWED {max_requests:,}")
     cfg['requests'] = str(requests)
-    print(f"Setting QPS to {qps:,} with burst size {burst_size:,} and burst delay {delay:,}ns with {requests:,} requests")
+    print(f"Setting QPS to {qps:,} - rQPS {real_qps:,} with burst size {burst_size:,} and burst delay {delay:,}ns with {requests:,} requests")
+    return real_qps
 
 def run_dnsperf(cfg):
     print("Running dns64perf++")
@@ -65,16 +75,16 @@ def parse_dnsperf_output(output):
 def binary_searchQPS(dnsperfconfig, low, high, runtime, accuracy, max_requests):
     while low < high:
         mid = low + (high - low) // 2
-        set_qps(dnsperfconfig, mid, 1000, runtime, max_requests)
+        rqps = set_qps(dnsperfconfig, mid, 1000, runtime, max_requests)
         res = run_dnsperf(dnsperfconfig)
         q, a, v = parse_dnsperf_output(res)
-        print(f"QPS: {mid:,}, Queries: {q:,}, Answers: {a:,}, Valid: {v:,}")
+        print(f"QPS: {mid:,}, rQPS:{rqps:,} Queries: {q:,}, Answers: {a:,}, Valid: {v:,}\n")
         if q != v:
             high = mid - accuracy
         else:
             low = mid + accuracy
        
-    return low - accuracy
+    return rqps
 
 def get_args():
     parser = argparse.ArgumentParser(
