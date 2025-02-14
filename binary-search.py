@@ -88,6 +88,8 @@ def binary_searchQPS(dnsperfconfig, low, high, runtime, accuracy, max_requests, 
        
     return low
 
+
+
 def get_args():
     parser = argparse.ArgumentParser(
                     prog='DNS64perf++ binary search',
@@ -115,8 +117,8 @@ def main():
 
     runtime = int(config['dns64perfpp']['runtime'])
     accuracy = int(config['DEFAULT']['accuracy'])
-    start_qps = int(config['DEFAULT']['start_qps'])
-    max_qps = int(config['DEFAULT']['max_qps'])
+    start_qps = int(config['DEFAULT']['start_qps']) // int(config['dns64perfpp']['threads'])
+    max_qps = int(config['DEFAULT']['max_qps']) // int(config['dns64perfpp']['threads'])
     runs = int(config['DEFAULT']['runs'])
     delay = int(config['dns64perfpp']['burst_delay'])
     MAX_REQUESTS = calculate_max_requests(dnsperfconfig)
@@ -133,7 +135,7 @@ def main():
         print(f"Run {run} done in {datetime.datetime.now() - rt}")
     
     after = datetime.datetime.now()
-    print(f"Total time taken: {after - before}")
+    print(f"Total time taken: {after - before} for {runs} runs on {targetname}")
 
 if __name__ == "__main__":
     main()
